@@ -26,6 +26,7 @@ class DataPreprocessor:
         
     def load_data(self):
         print('📊 Loading raw data...')
+        # function to read csv file
         def safe_read_csv(path: str) -> pd.DataFrame:
             try:
                 return pd.read_csv(path)
@@ -69,9 +70,9 @@ class DataPreprocessor:
 
         # Custom resample per link with per-column aggregation
         interval = self.resample_interval
-        window_seconds = int(pd.to_timedelta(interval).total_seconds())
+        window_seconds = int(pd.to_timedelta(interval).total_seconds()) # độ dài của interval resample tính bằng giây
 
-        def resample_group(g: pd.DataFrame) -> pd.DataFrame:
+        def resample_group(g: pd.DataFrame) -> pd.DataFrame: # nhận vào 1 data frame và trả về 1 data frame
             g = g.set_index('timestamp').sort_index()
             idx = g.resample(interval).asfreq().index
             out = pd.DataFrame(index=idx)
@@ -135,7 +136,7 @@ class DataPreprocessor:
             df['throughput_mbps'] = 0.0
 
         if 'jitter_milliseconds' in df.columns and 'loss_rate' in df.columns:
-            df['quality_score'] = 1 - (df['loss_rate'] + df['jitter_milliseconds'] / 1000.0)
+            df['quality_score'] = 1 - (df['loss_rate'] + df['jitter_milliseconds'] / 1000.0) # đánh giá mức độ ổn định của bằng thông
             df['quality_score'] = df['quality_score'].clip(0, 1)
         else:
             df['quality_score'] = 1.0
@@ -156,7 +157,7 @@ class DataPreprocessor:
         ]
         desired_vae = [
             'utilization', 'bitrate_bps', 'throughput_mbps', 'quality_score',
-            'loss_rate', 'hour', 'is_weekend', 'efficiency'
+            'loss_rate', 'hour', 'is_weekend', 'efficiency' 
         ]
 
         # Keep only available numeric
