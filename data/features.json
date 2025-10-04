@@ -1,1 +1,1 @@
-{"lstm_features": ["utilization", "bitrate_bps", "throughput_mbps", "quality_score", "hour", "is_weekend"], "vae_features": ["utilization", "bitrate_bps", "throughput_mbps", "quality_score", "loss_rate", "hour", "is_weekend", "efficiency"]}
+{"model_features": ["utilization", "bitrate_bps", "loss_rate", "jitter_milliseconds", "rtt_milliseconds", "capacity_bps"], "target_feature": "utilization"}

@@ -121,8 +121,8 @@ class LSTMTrainer:
         best_val_loss = float('inf')
         patience_counter = 0
         
-        print(f"🚀 Starting training for {epochs} epochs...")
-        print(f"🔧 Device: {self.device}")
+        print(f"Starting training for {epochs} epochs...")
+        print(f"Device: {self.device}")
         
         for epoch in range(epochs):
             # Training
@@ -159,12 +159,12 @@ class LSTMTrainer:
             
             # Early stopping
             if patience_counter >= patience:
-                print(f"⏹️ Early stopping at epoch {epoch+1}")
+                print(f"Early stopping at epoch {epoch+1}")
                 break
         
         # Load best model
         self.model.load_state_dict(torch.load('models/best_lstm_model.pth'))
-        print("✅ Training completed!")
+        print("Training completed!")
         
         return self.train_losses, self.val_losses
 
@@ -306,7 +306,7 @@ def load_data():
     """
     Load preprocessed data
     """
-    print("📊 Loading preprocessed data...")
+    print("Loading preprocessed data...")
     
     # Load arrays
     X_train = np.load('data/X_train.npy')
@@ -323,7 +323,7 @@ def load_data():
     with open('data/link_index.json', 'r') as f:
         link_names = json.load(f)
     
-    print(f"✅ Data shapes:")
+    print(f"Data shapes:")
     print(f"  X_train: {X_train.shape}")
     print(f"  y_train: {y_train.shape}")
     print(f"  X_val: {X_val.shape}")
@@ -401,7 +401,7 @@ def main():
     """
     Main training and evaluation pipeline
     """
-    print("🚀 LSTM Baseline Model Training (PyTorch)")
+    print("LSTM Baseline Model Training (PyTorch)")
     print("=" * 50)
     
     # Create directories
@@ -410,7 +410,7 @@ def main():
     
     # Set device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"🔧 Using device: {device}")
+    print(f"Using device: {device}")
     if torch.cuda.is_available():
         print(f"   GPU: {torch.cuda.get_device_name(0)}")
     
@@ -427,7 +427,7 @@ def main():
     input_size = X_train.shape[-1]  # features * links
     output_size = y_train.shape[-1]  # number of links (for utilization prediction)
     
-    print(f"📐 Model configuration:")
+    print(f"Model configuration:")
     print(f"  Input size: {input_size}")
     print(f"  Output size: {output_size}")
     print(f"  Sequence length: {X_train.shape[1]}")
@@ -445,7 +445,7 @@ def main():
     # Model summary
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"🤖 Model parameters:")
+    print(f"Model parameters:")
     print(f"  Total: {total_params:,}")
     print(f"  Trainable: {trainable_params:,}")
     
@@ -462,14 +462,14 @@ def main():
     plot_training_curves(train_losses, val_losses)
     
     # Evaluation
-    print("\n📊 Evaluating on test set...")
+    print("\nEvaluating on test set...")
     evaluator = LSTMEvaluator(model, device)
     y_pred, y_true = evaluator.predict(test_loader)
     
     # Calculate metrics
     metrics = evaluator.evaluate_metrics(y_true, y_pred)
     
-    print("\n📈 Test Results:")
+    print("\nTest Results:")
     print(f"  MSE: {metrics['mse']:.6f}")
     print(f"  RMSE: {metrics['rmse']:.6f}")
     print(f"  MAE: {metrics['mae']:.6f}")
@@ -477,7 +477,7 @@ def main():
     
     # Per-link results
     if len(metrics['per_link_mse']) > 1:
-        print(f"\n🔗 Per-link Performance:")
+        print(f"\nPer-link Performance:")
         for i, (link, mse, mae) in enumerate(zip(link_names, metrics['per_link_mse'], metrics['per_link_mae'])):
             print(f"  {link}: MSE={mse:.6f}, MAE={mae:.6f}")
     
@@ -513,13 +513,13 @@ def main():
     with open('results/lstm_results.json', 'w') as f:
         json.dump(results, f, indent=2)
     
-    print("\n✅ Training and evaluation completed!")
-    print("📁 Results saved in 'results/' directory:")
+    print("\nTraining and evaluation completed!")
+    print("Results saved in 'results/' directory:")
     print("   - lstm_results.json: Detailed metrics")
     print("   - training_curves.png: Training visualization")
     print("   - lstm_results.png: Prediction plots")
     print("   - lstm_scatter.png: Scatter plot")
-    print("💾 Best model saved as 'models/best_lstm_model.pth'")
+    print("Best model saved as 'models/best_lstm_model.pth'")
 
 if __name__ == "__main__":
     main()
