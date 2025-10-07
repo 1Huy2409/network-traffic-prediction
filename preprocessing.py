@@ -1,3 +1,12 @@
+# ====================== PREPROCESSING (10s, SEQ=96, TIME-ENCODED) ======================
+# - Đọc dataset/*.csv
+# - Resample 10 giây theo link_id
+# - Tạo feature + mã hóa thời gian (sin/cos)
+# - Chọn feature chung cho VAE & LSTM: 6 core + 4 time-encoding
+# - Scale theo train-only, build X,y theo chuỗi thời gian cho LSTM
+# - Lưu artifacts vào /data và /models
+# ================================================================================
+
 import os
 import json
 import warnings
@@ -9,7 +18,7 @@ warnings.filterwarnings('ignore')
 
 
 class DataPreprocessor:
-    def __init__(self, resample_interval: str = '10S', sequence_length: int = 24):
+    def __init__(self, resample_interval: str = '10S', sequence_length: int = 96):
         self.resample_interval = resample_interval
         self.sequence_length = sequence_length
 
@@ -17,7 +26,7 @@ class DataPreprocessor:
         self.scalers = None
 
         # feature lists
-        self.model_features = []       # ✅ bộ feature chung cho cả VAE & LSTM
+        self.model_features = []     # ✅ bộ feature chung cho cả VAE & LSTM
         self.target_feature = 'utilization'
 
         # DataFrames
@@ -126,10 +135,16 @@ class DataPreprocessor:
         print('Creating features...')
         df = self.traffic_df
 
-        # Time features (có thể bổ sung sin/cos sau)
+        # Time features (gốc)
         df['hour'] = df['timestamp'].dt.hour
         df['day_of_week'] = df['timestamp'].dt.dayofweek
         df['is_weekend'] = (df['day_of_week'] >= 5).astype(int)
+
+        # ✅ Time encoding (chu kỳ ngày/tuần)
+        df['hour_sin'] = np.sin(2 * np.pi * df['hour'] / 24)
+        df['hour_cos'] = np.cos(2 * np.pi * df['hour'] / 24)
+        df['day_sin'] = np.sin(2 * np.pi * df['day_of_week'] / 7)
+        df['day_cos'] = np.cos(2 * np.pi * df['day_of_week'] / 7)
 
         # Derived metrics
         window_seconds = int(pd.to_timedelta(self.resample_interval).total_seconds())
@@ -139,6 +154,7 @@ class DataPreprocessor:
         else:
             df['utilization'] = 0.0
 
+        # (Các feature dẫn xuất khác vẫn tính để dùng nơi khác nếu cần, nhưng không thêm vào model_features)
         if 'bitrate_bps' in df.columns:
             df['throughput_mbps'] = df['bitrate_bps'] / 1e6
         else:
@@ -153,7 +169,7 @@ class DataPreprocessor:
         df['efficiency'] = df['utilization'] * df['quality_score']
 
         self.traffic_df = df
-        print('Features created')
+        print('Features created (đã thêm hour/day sin/cos)')
 
     # --------------------
     # Feature Selection (chung cho VAE & LSTM)
@@ -162,20 +178,22 @@ class DataPreprocessor:
         print('Selecting features for BOTH VAE & LSTM...')
         numeric_features = self.traffic_df.select_dtypes(include=[np.number]).columns.tolist()
 
-        # ✅ Bộ "lean" tránh trùng lặp, phù hợp cả VAE và LSTM
+        # ✅ Bộ "lean" + time encoding (không thêm các feature trùng thông tin)
         desired = [
+            # 6 core
             'utilization',
             'bitrate_bps',
             'loss_rate',
             'jitter_milliseconds',
             'rtt_milliseconds',
-            'capacity_bps'
+            'capacity_bps',
+            # 4 time encodings
+            'hour_sin', 'hour_cos',
+            'day_sin',  'day_cos',
         ]
+
         # Tự loại cột thiếu
         self.model_features = [c for c in desired if c in numeric_features]
-
-        # (tuỳ chọn) thêm time sin/cos (nếu muốn học chu kỳ)
-        # hour_sin = sin(2π*hour/24), etc. — bỏ qua để patch gọn.
 
         print(f"MODEL features ({len(self.model_features)}): {self.model_features}")
 
@@ -191,6 +209,7 @@ class DataPreprocessor:
 
     def build_wide_snapshots(self, features: list):
         print('Building timestamp×link snapshots...')
+        # Không dùng 'hour'/'is_weekend' (categorical); sin/cos là numeric nên dùng được
         use_feats = [f for f in features if f not in ['hour', 'is_weekend']]
         link_order = self.get_link_order()
 
@@ -329,18 +348,18 @@ class DataPreprocessor:
         # Build 1 wide snapshot chung cho VAE + LSTM
         wide, link_order, missing_mask = self.build_wide_snapshots(self.model_features)
 
-        # Fit scalers on train rows only; scale entire wide
+        # Fit scalers trên train rows; scale toàn bộ wide
         T = len(wide)
         t1 = int(T * 0.7)
         wide_scaled, scalers = self.fit_transform_wide_scalers(wide, train_end_idx=t1)
 
-        # Fill any remaining NaNs with train means (per feature/column)
+        # Fill NaN còn sót bằng train means (mỗi feature/column)
         for feat in wide_scaled.columns.levels[0]:
             block = wide_scaled[feat]
             means = block.iloc[:t1].mean(axis=0)
             wide_scaled[feat] = block.fillna(means)
 
-        # Đảm bảo target_feature xuất hiện trong bộ feature chung
+        # Đảm bảo target_feature nằm trong model_features
         if self.target_feature not in self.model_features:
             print(f"⚠️ target_feature '{self.target_feature}' không có trong model_features; dùng feature đầu tiên")
             self.target_feature = self.model_features[0]
@@ -384,7 +403,7 @@ class DataPreprocessor:
 
 
 def main():
-    pre = DataPreprocessor(resample_interval='10S', sequence_length=24)
+    pre = DataPreprocessor(resample_interval='10S', sequence_length=96)
     pre.run()
 
 

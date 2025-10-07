@@ -1,1 +1,1 @@
-{"model_features": ["utilization", "bitrate_bps", "loss_rate", "jitter_milliseconds", "rtt_milliseconds", "capacity_bps"], "target_feature": "utilization"}
+{"model_features": ["utilization", "bitrate_bps", "loss_rate", "jitter_milliseconds", "rtt_milliseconds", "capacity_bps", "hour_sin", "hour_cos", "day_sin", "day_cos"], "target_feature": "utilization"}
