@@ -11,8 +11,8 @@ pip3 install pandas numpy fastapi uvicorn
 sysctl -w net.ipv4.ip_forward=1 || true
 
 # ===================== 1) KHỞI TẠO TOPOLOGY =====================
-TOPO=/data/topology_data.csv   # file của bạn đã chứa đủ link đổ về GROUND_GATEWAY_01
-python3 /core/boot_topology.py "$TOPO"
+export TOPO=/data/topology_data.csv        # CSV topo của bạn (đã có nhiều link đổ về GROUND_GATEWAY_01)
+python3 /core/boot_topology.py "$TOPO"   # script này sẽ sinh /data/runtime/ifmap.csv
 
 # ===================== 2) TẠO FASTAPI ECHO SERVER =====================
 cat >/core/echo_api.py <<'PY'
@@ -28,51 +28,59 @@ async def ingest(req: Request):
 PY
 
 # ===================== 3) CHẠY SERVER CHO CÁC LINK ĐỔ VỀ GROUND_GATEWAY_01 =====================
-SERVER_NODE="GROUND_GATEWAY_01"
+export SERVER_NODE="GROUND_GATEWAY_01"
+export IFMAP="/data/runtime/ifmap.csv"
 
-python3 - <<PY
+python3 - <<'PY'
 import csv, subprocess, os
-TOPO = "$TOPO"
-SERVER_NODE = "$SERVER_NODE"
+TOPO = os.environ.get("TOPO", "/data/topology_data.csv")
+SERVER_NODE = os.environ["SERVER_NODE"]
+IFMAP = os.environ["IFMAP"]
 
-def sh(cmd):
-    subprocess.run(cmd, shell=True, check=True, capture_output=False)
+def sh(cmd): subprocess.run(cmd, shell=True, check=True)
 
-open("/core/link_map.sh","w").close()
-server_links = []
-
+# 1) lấy danh sách các link đổ về SERVER_NODE
+server_links = set()
 with open(TOPO, newline='') as f:
-    r = csv.DictReader(f)
-    for row in r:
+    for row in csv.DictReader(f):
         if row["destination_node"] == SERVER_NODE:
-            lid = row["link_id"]
-            server_links.append(lid)
-            # tìm interface và ip của đầu B
-            p = subprocess.run("ip -o -4 addr show", shell=True, capture_output=True, text=True)
-            ipB=None; ifB=None
-            for line in p.stdout.splitlines():
-                if f"veth-{lid}-B-" in line and "inet " in line:
-                    ifB = line.split(":")[1].strip()
-                    ipB = line.split("inet ")[1].split()[0].split("/")[0]
-                    break
-            if ipB:
-                sh(f'nohup uvicorn --app-dir /core echo_api:app --host "$ipB" --port 8080 >/tmp/echo_${lid}.log 2>&1 &')
-                with open("/core/link_map.sh","a") as o:
-                    o.write(f'add_map "{lid}" "{ipB}"\n')
-            else:
-                print(f"[WARN] Không tìm thấy IP_B cho {lid}")
-print("[OK] started servers for:", ",".join(server_links))
+            server_links.add(row["link_id"])
+
+# 2) đọc ifmap để tra ipB cho từng link
+link2ipB = {}
+with open(IFMAP, newline='') as f:
+    for row in csv.DictReader(f):
+        lid = row["link_id"]
+        ipB = row["ipB"].split("/")[0]
+        link2ipB[lid] = ipB
+
+# 3) khởi động uvicorn và ghi map
+open("/core/link_map.sh","w").close()
+started = []
+for lid in sorted(server_links):
+    ipB = link2ipB.get(lid)
+    if not ipB:
+        print(f"[WARN] không thấy ipB cho {lid} trong {IFMAP}")
+        continue
+    # chạy uvicorn bind vào ipB:8080 (mỗi IP riêng, nên cùng port 8080 không xung đột)
+    sh(f'nohup uvicorn --app-dir /core echo_api:app --host {ipB} --port 8080 >/tmp/echo_{lid}.log 2>&1 &')
+    with open("/core/link_map.sh","a") as o:
+        o.write(f'add_map "{lid}" "{ipB}"\n')
+    started.append(lid)
+
+print("[OK] started servers for:", ",".join(started))
 PY
 
+# Nạp map link_id -> ipB vào shell
 declare -A LINK_IPB
 add_map(){ LINK_IPB["$1"]="$2"; }
 source /core/link_map.sh || true
 
 # ===================== 4) TẠO DNAT CHO CÁC CLIENT (WireGuard) =====================
 # Mỗi client WireGuard thật sẽ có 1 IP riêng (10.10.0.x)
-# Ta map IP đó vào link tương ứng (link đổ về GROUND_GATEWAY_01)
+# Ta map IP đó vào link tương ứng (đều đổ về GROUND_GATEWAY_01)
 declare -A CLIENT_LINK
-CLIENT_LINK["10.10.0.2"]="LINK_AIR_GROUND_01"      # UAV_01
+CLIENT_LINK["10.10.0.2"]="LINK_AIR_GROUND_01"       # UAV_01
 CLIENT_LINK["10.10.0.3"]="LINK_SATELLITE_GROUND_13" # SATELLITE_02
 CLIENT_LINK["10.10.0.4"]="LINK_SATELLITE_GROUND_14" # SATELLITE_03
 CLIENT_LINK["10.10.0.5"]="LINK_UAV_GROUND_15"       # UAV_02
