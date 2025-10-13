@@ -5,7 +5,7 @@ services:
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
-    environment: 
+    environment:
       - PUID=1000 # ID host user
       - PGID=1000 # ID group
       - TZ=${TZ}
@@ -15,22 +15,23 @@ services:
       - PEERDNS=${PEERDNS}
       - INTERNAL_SUBNET=${WG_SUBNET}
     volumes:
-        - ./wgdata:/config
+      - ./wgdata:/config
+      - ./data:/data:ro
     ports:
       - "${SERVERPORT}:${SERVERPORT}/udp"
     sysctls:
       - net.ipv4.ip_forward=1
       - net.ipv4.conf.all.src_valid_mark=1
     restart: unless-stopped
-  sagsins-core: 
+  sagsins-core:
     image: ubuntu:22.04
     container_name: sagsins-core
     privileged: true
-    cap_add: [ "NET_ADMIN" ]
+    cap_add: ["NET_ADMIN"]
     environment:
       - TZ=${TZ}
     volumes:
       - ./data:/data
       - ./core:/core
-    command: [ "bash", "-lc", "/core/start.sh" ]
+    command: ["bash", "-lc", "/core/start.sh"]
     restart: unless-stopped
