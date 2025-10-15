@@ -17,6 +17,7 @@ services:
     volumes:
       - ./wgdata:/config
       - ./data:/data:ro
+      - ./wgdata/custom-cont-init.d/90-setup-dnat.sh:/etc/cont-init.d/90-setup-dnat.sh:ro
     ports:
       - "${SERVERPORT}:${SERVERPORT}/udp"
     sysctls:
