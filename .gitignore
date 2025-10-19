@@ -64,7 +64,7 @@ logs/
 # TensorBoard
 runs/
 logs/
-sagsins/wgdata
+sagsins/wgdata/config/*.conf
 # Keep dataset files in data/ folder
 !data/*.csv
 dataset
