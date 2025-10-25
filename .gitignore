@@ -67,3 +67,5 @@ logs/
 
 # Keep dataset files in data/ folder
 !data/*.csv
+
+/data/*.npy
