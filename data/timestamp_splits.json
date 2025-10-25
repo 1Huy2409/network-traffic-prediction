@@ -1,1 +1,1 @@
-{"T": 8640, "train_end": 6048, "val_end": 7344}
+{"T": 20161, "train_end": 14400, "val_end": 15840, "split_method": "hybrid_sequential_7day"}

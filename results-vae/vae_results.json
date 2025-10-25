@@ -1,0 +1,128 @@
+{
+  "model": "HybridVAE-TwoStage",
+  "architecture": "Two-Stage: (1) Pre-train VAE Encoder+Decoder \u2192 (2) Train Hybrid Predictor",
+  "training_strategy": "Stage 1: recon+KL loss | Stage 2: Hybrid Predictor (VAE latent + Raw LSTM) with frozen encoder",
+  "predictor_type": "Hybrid: VAE latent (compressed) + Raw input LSTM (temporal details)",
+  "metrics_scaled": {
+    "mse": 0.1176314651966095,
+    "rmse": 0.3429744243621826,
+    "mae": 0.2769082188606262,
+    "r2": -0.7455148696899414,
+    "per_link_mse": [
+      0.14578333497047424,
+      0.17724810540676117,
+      0.15064923465251923,
+      0.0830320194363594,
+      0.08324705809354782,
+      0.2209673672914505,
+      0.2856667935848236,
+      0.046530693769454956,
+      0.046864867210388184,
+      0.044001173228025436,
+      0.06345073133707047,
+      0.06413643062114716
+    ],
+    "per_link_mae": [
+      0.318747341632843,
+      0.3646093010902405,
+      0.3336566090583801,
+      0.22699785232543945,
+      0.22651083767414093,
+      0.40038976073265076,
+      0.4574858248233795,
+      0.1934100091457367,
+      0.19044086337089539,
+      0.17592446506023407,
+      0.21636751294136047,
+      0.2183590978384018
+    ]
+  },
+  "model_config": {
+    "latent_dim": 64,
+    "hidden_dim": 128,
+    "dropout": 0.4,
+    "input_dim": 132,
+    "seq_len": 96,
+    "num_links": 12
+  },
+  "training_config": {
+    "batch_size": 128,
+    "stage1_epochs": 30,
+    "stage2_epochs": 50,
+    "stage1_lr": 0.001,
+    "stage2_lr": 0.0005,
+    "weight_decay": 0.0005,
+    "beta": 0.5,
+    "pred_weight": 1.0,
+    "kl_warmup_epochs": 15,
+    "patience": 15,
+    "device": "cuda"
+  },
+  "data_info": {
+    "features": [
+      "utilization",
+      "bitrate_bps",
+      "loss_rate",
+      "jitter_milliseconds",
+      "rtt_milliseconds",
+      "capacity_bps",
+      "is_weekend",
+      "hour_sin",
+      "hour_cos",
+      "day_sin",
+      "day_cos"
+    ],
+    "link_names": [
+      "LINK_AIR_GROUND_01",
+      "LINK_AIR_GROUND_02",
+      "LINK_AIR_GROUND_03",
+      "LINK_GROUND_SEA_01",
+      "LINK_GROUND_SEA_02",
+      "LINK_SPACE_AIR_01",
+      "LINK_SPACE_AIR_02",
+      "LINK_SPACE_GROUND_01",
+      "LINK_SPACE_GROUND_02",
+      "LINK_SPACE_GROUND_03",
+      "LINK_SPACE_SPACE_01",
+      "LINK_SPACE_SPACE_02"
+    ],
+    "seq_len": 96,
+    "train_samples": 14331,
+    "val_samples": 1433,
+    "test_samples": 4301
+  },
+  "metrics_real": {
+    "mse": 0.06995926052331924,
+    "rmse": 0.26449814438819885,
+    "mae": 0.17126716673374176,
+    "r2": -0.7455150485038757,
+    "per_link_mse": [
+      0.12374518066644669,
+      0.14804236590862274,
+      0.1291072815656662,
+      0.014767490327358246,
+      0.014762386679649353,
+      0.17676277458667755,
+      0.22376617789268494,
+      0.0027491487562656403,
+      0.002613155171275139,
+      0.002545377239584923,
+      0.0003221534425392747,
+      0.00032751570688560605
+    ],
+    "per_link_mae": [
+      0.29366812109947205,
+      0.33321908116340637,
+      0.30888131260871887,
+      0.09573093056678772,
+      0.09538561850786209,
+      0.3581082224845886,
+      0.40489739179611206,
+      0.047011956572532654,
+      0.04496960714459419,
+      0.04231264442205429,
+      0.0154171884059906,
+      0.015603965148329735
+    ]
+  }
+}
