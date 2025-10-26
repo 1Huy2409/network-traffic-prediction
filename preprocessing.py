@@ -381,12 +381,27 @@ class DataPreprocessor:
         return (X_train, y_train), (X_val, y_val), (X_test, y_test)
 
     def create_vae_sequences_from_wide(self, wide: pd.DataFrame, vae_columns: list, 
-                                       link_order: list, seq_len: int = 96, horizon: int = 1):
+                                       link_order: list, seq_len: int = 96, horizon: int = 12):
         """
-        Create VAE sequences from wide snapshots
-        Returns: X, y, where y is utilization for all links
+        ✅ FIXED: Create VAE sequences with SEQUENCE prediction
+        
+        Args:
+            wide: Wide format dataframe (timestamp × features×links)
+            vae_columns: List of (feature, link) tuples
+            link_order: Ordered list of link names
+            seq_len: Input sequence length (default 96 = 48 min)
+            horizon: Prediction horizon in timesteps (default 12 = 6 min)
+        
+        Returns:
+            X: (N, seq_len, D) - Input sequences
+            y: (N, horizon, num_links) - Target SEQUENCES (not single timestep!)
+        
+        Note: horizon=12 means VAE predicts next 6 minutes (12×30s)
+              This is MORE challenging than LSTM (which predicts 1 timestep)
         """
         print(f"Creating VAE sequences (seq_len={seq_len}, horizon={horizon})...")
+        print(f"  Input window: {seq_len * 30}s ({seq_len * 30 / 60:.1f} min)")
+        print(f"  Forecast window: {horizon * 30}s ({horizon * 30 / 60:.1f} min)")
         
         values = wide.values  # (T, D) where D = num_features * num_links
         
@@ -399,26 +414,29 @@ class DataPreprocessor:
                 util_indices.append(idx)
         
         util_indices.sort()
-        print(f"  Found {len(util_indices)} utilization columns at indices: {util_indices[:3]}...{util_indices[-3:]}")
+        print(f"  Found {len(util_indices)} utilization columns")
         
         # Create sequences
         X_list = []
         y_list = []
         
+        # ✅ Need seq_len + horizon timesteps for each sample
         for i in range(len(values) - seq_len - horizon + 1):
-            # Input: sequence of all features
+            # Input: past seq_len timesteps with all features
             X_seq = values[i:i+seq_len]  # (seq_len, D)
             
-            # Target: utilization at future timestep for all links
-            y_target = values[i+seq_len, util_indices]  # (num_links,)
+            # ✅ Target: NEXT horizon timesteps of utilization (SEQUENCE!)
+            y_target = values[i+seq_len:i+seq_len+horizon, util_indices]  # (horizon, num_links)
             
             X_list.append(X_seq)
             y_list.append(y_target)
         
         X = np.array(X_list)  # (N, seq_len, D)
-        y = np.array(y_list)  # (N, num_links)
+        y = np.array(y_list)  # (N, horizon, num_links) ✅ SEQUENCE!
         
-        print(f"  VAE sequences: X={X.shape}, y={y.shape}")
+        print(f"  ✅ VAE sequences: X={X.shape}, y={y.shape}")
+        print(f"  Sample 0 - X range: [{X[0].min():.3f}, {X[0].max():.3f}]")
+        print(f"  Sample 0 - y range: [{y[0].min():.3f}, {y[0].max():.3f}]")
         return X, y
 
     # --------------------
@@ -428,7 +446,8 @@ class DataPreprocessor:
                  vae_snapshots, link_order, scalers, missing_mask, T,
                  X_vae_train=None, y_vae_train=None,
                  X_vae_val=None, y_vae_val=None,
-                 X_vae_test=None, y_vae_test=None):
+                 X_vae_test=None, y_vae_test=None,
+                 horizon=12):  # ✅ Add horizon parameter
         print('Saving processed outputs...')
         os.makedirs('data', exist_ok=True)
         os.makedirs('models', exist_ok=True)
@@ -436,10 +455,13 @@ class DataPreprocessor:
         # Save processed table
         self.traffic_df.to_csv('data/traffic_processed.csv', index=False)
 
-        # Save feature lists
+        # Save feature lists + horizon metadata
         with open('data/features.json', 'w') as f:
-            json.dump({'model_features': self.model_features,
-                       'target_feature': self.target_feature}, f)
+            json.dump({
+                'model_features': self.model_features,
+                'target_feature': self.target_feature,
+                'horizon': horizon  # ✅ Save horizon for VAE
+            }, f)
 
         # Save LSTM sequences
         np.save('data/X_train.npy', X_train)
@@ -542,7 +564,7 @@ class DataPreprocessor:
         
         X_vae, y_vae = self.create_vae_sequences_from_wide(
             wide_scaled, vae_cols, link_order, 
-            seq_len=self.sequence_length, horizon=1
+            seq_len=self.sequence_length, horizon=12
         )
         
         # Split VAE sequences theo cùng tỷ lệ với LSTM
@@ -581,7 +603,8 @@ class DataPreprocessor:
                       T=T,
                       X_vae_train=X_vae_train, y_vae_train=y_vae_train,
                       X_vae_val=X_vae_val, y_vae_val=y_vae_val,
-                      X_vae_test=X_vae_test, y_vae_test=y_vae_test)
+                      X_vae_test=X_vae_test, y_vae_test=y_vae_test,
+                      horizon=12)  # ✅ Pass horizon=12
 
         print('Done!')
         return {
