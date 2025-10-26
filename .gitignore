@@ -69,3 +69,10 @@ logs/
 !data/*.csv
 
 /data/*.npy
+
+# Ignore large numpy arrays
+*.npy
+
+# Allow PNG and JSON in results-vae
+!results-vae/*.png
+!results-vae/*.json
