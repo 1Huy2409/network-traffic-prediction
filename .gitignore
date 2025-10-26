@@ -33,8 +33,10 @@ models/*.pt
 models/*.pth
 
 # Results (generated files - don't commit)
-results/*.json
+results/*.npy
 results/*.csv
+
+results-vae/*.npy
 
 # IDE
 .vscode/
@@ -72,7 +74,3 @@ logs/
 
 # Ignore large numpy arrays
 *.npy
-
-# Allow PNG and JSON in results-vae
-!results-vae/*.png
-!results-vae/*.json
