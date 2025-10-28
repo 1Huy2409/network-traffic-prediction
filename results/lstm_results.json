@@ -1,0 +1,90 @@
+{
+  "metrics_scaled": {
+    "mse": 0.007052674889564514,
+    "rmse": 0.08398020267486572,
+    "mae": 0.0554509162902832,
+    "r2": 0.8755130767822266,
+    "per_link_mse": [
+      0.0039321198128163815,
+      0.0031768495682626963,
+      0.002824116265401244,
+      0.02500176802277565,
+      0.005375776439905167,
+      0.006348954513669014,
+      0.003603197867050767,
+      0.004882579203695059,
+      0.005674348212778568,
+      0.006605504080653191,
+      0.008969162590801716,
+      0.008237720467150211
+    ],
+    "per_link_mae": [
+      0.04624870419502258,
+      0.042668964713811874,
+      0.04107077792286873,
+      0.10364732891321182,
+      0.05739863961935043,
+      0.046965405344963074,
+      0.03749145567417145,
+      0.05433705821633339,
+      0.05877572298049927,
+      0.06423007696866989,
+      0.058278851211071014,
+      0.05429797247052193
+    ]
+  },
+  "metrics_real": null,
+  "model_config": {
+    "arch": "LSTM(per-link)+Transformer(cross-link)",
+    "features_per_link": 11,
+    "num_links": 12,
+    "hidden_size": 256,
+    "num_layers": 2,
+    "attn_layers": 2,
+    "attn_heads": 4,
+    "dropout": 0.2
+  },
+  "training_config": {
+    "epochs": 42,
+    "batch_size": 128,
+    "lr": 0.001,
+    "patience": 30,
+    "weight_decay": 0.0001,
+    "device": "cuda",
+    "amp": true
+  },
+  "data_info": {
+    "features": [
+      "utilization",
+      "bitrate_bps",
+      "loss_rate",
+      "jitter_milliseconds",
+      "rtt_milliseconds",
+      "capacity_bps",
+      "is_weekend",
+      "hour_sin",
+      "hour_cos",
+      "day_sin",
+      "day_cos"
+    ],
+    "target_feature": "utilization",
+    "link_names": [
+      "LINK_AIR_GROUND_01",
+      "LINK_AIR_GROUND_02",
+      "LINK_AIR_GROUND_03",
+      "LINK_GROUND_SEA_01",
+      "LINK_GROUND_SEA_02",
+      "LINK_SPACE_AIR_01",
+      "LINK_SPACE_AIR_02",
+      "LINK_SPACE_GROUND_01",
+      "LINK_SPACE_GROUND_02",
+      "LINK_SPACE_GROUND_03",
+      "LINK_SPACE_SPACE_01",
+      "LINK_SPACE_SPACE_02"
+    ],
+    "seq_len": 96,
+    "train_samples": 15600,
+    "val_samples": 1440,
+    "test_samples": 4321
+  }
+}

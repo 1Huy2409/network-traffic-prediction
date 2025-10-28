@@ -87,7 +87,7 @@ class LSTMModel(nn.Module):
         # Cross-link self-attention
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=self.H, nhead=attn_heads, dim_feedforward=self.H * 2,
-            dropout=0.3,  # ✅ Tăng từ 0.2 -> 0.3
+            dropout=0.2,  # ✅ Về lại 0.2 (original)
             activation='gelu', batch_first=True, norm_first=True
         )
         self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=attn_layers)
@@ -143,9 +143,7 @@ class LSTMTrainer:
         if train:
             self.model.train()
             optimizer.zero_grad(set_to_none=True)
-            # ✅ Data augmentation: Thêm noise nhẹ vào input khi training
-            noise = torch.randn_like(xb) * 0.01
-            xb = xb + noise
+            # ✅ Không thêm noise (original)
         else:
             self.model.eval()
 
@@ -368,14 +366,14 @@ def main():
     # Build model (GIỮ TÊN class)
     model = LSTMModel(
         input_size=D,
-        hidden_size=128,  # ✅ Giảm từ 256 -> 128
-        num_layers=2,
-        dropout=0.3,  # ✅ Tăng từ 0.2 -> 0.3
+        hidden_size=256,  # ✅ Về lại 256 (original)
+        num_layers=2,     # ✅ Về lại 2 layers (original)
+        dropout=0.2,      # ✅ Về lại 0.2 (original)
         output_size=L,
         features_per_link=F,
         num_links=L,
-        attn_layers=1,  # ✅ Giảm từ 2 -> 1
-        attn_heads=4
+        attn_layers=2,    # ✅ Về lại 2 (original)
+        attn_heads=4      # ✅ Về lại 4 (original)
     )
 
     # Param stats
@@ -387,10 +385,10 @@ def main():
     trainer = LSTMTrainer(model, device=device, use_amp=True)
     train_losses, val_losses = trainer.train(
         train_loader, val_loader,
-        epochs=150,  # ✅ Giảm từ 300 -> 150
-        lr=5e-4,  # ✅ Giảm từ 1e-3 -> 5e-4 (learning chậm hơn, stable hơn)
-        patience=20,  # ✅ Giảm từ 30 -> 20
-        weight_decay=1e-3  # ✅ Tăng từ 1e-4 -> 1e-3 (regularization mạnh hơn)
+        epochs=300,       # ✅ Về lại 300 (original)
+        lr=1e-3,          # ✅ Về lại 1e-3 (original)
+        patience=30,      # ✅ Về lại 30 (original)
+        weight_decay=1e-4 # ✅ Về lại 1e-4 (original)
     )
     plot_training_curves(train_losses, val_losses)
 

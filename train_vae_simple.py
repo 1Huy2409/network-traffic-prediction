@@ -25,8 +25,11 @@ from torch.amp import autocast, GradScaler
 import numpy as np
 import json
 import os
+import pandas as pd
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 import matplotlib.pyplot as plt
+import seaborn as sns
+from tqdm import tqdm
 
 
 def set_seed(seed=42):
@@ -64,7 +67,7 @@ class SimpleVAE(nn.Module):
         self.encoder = nn.LSTM(
             input_size=input_dim,
             hidden_size=hidden_dim,
-            num_layers=2,
+            num_layers=3,        # ✅ Tăng từ 2 -> 3 layers (deeper)
             dropout=dropout,
             batch_first=True,
             bidirectional=True
@@ -75,7 +78,7 @@ class SimpleVAE(nn.Module):
         # 2. Attention (optional but helpful)
         self.attention = nn.MultiheadAttention(
             embed_dim=hidden_dim * 2,
-            num_heads=4,
+            num_heads=8,         # ✅ Tăng từ 4 -> 8 heads (more attention)
             dropout=dropout,
             batch_first=True
         )
@@ -204,7 +207,7 @@ class SimpleVAETrainer:
         total_pred = 0
         total_kl = 0
         
-        for X_batch, y_batch in self.train_loader:
+        for X_batch, y_batch in tqdm(self.train_loader, desc="Training", leave=False):
             X_batch = X_batch.to(self.device)
             y_batch = y_batch.to(self.device)
             
@@ -267,17 +270,11 @@ class SimpleVAETrainer:
     
     def train(self, epochs=100, patience=20):
         """Main training loop"""
-        print(f"\n{'='*70}")
-        print(f"🚀 SIMPLE VAE TRAINING")
-        print(f"{'='*70}")
-        print(f"Device: {self.device}")
-        print(f"Epochs: {epochs}, Patience: {patience}")
-        print(f"Beta (KL weight): {self.beta}")
-        print(f"{'='*70}\n")
+        print(f"Starting training for {epochs} epochs on {self.device} | AMP={self.use_amp}")
         
         no_improve = 0
         
-        for epoch in range(epochs):
+        for epoch in range(1, epochs + 1):
             # Train
             train_metrics = self.train_epoch()
             
@@ -292,81 +289,112 @@ class SimpleVAETrainer:
             self.history['val_r2'].append(val_r2)
             self.history['val_mae'].append(val_mae)
             
-            print(f"Epoch {epoch+1:3d}/{epochs} | "
-                  f"Train: {train_metrics['loss']:.4f} "
-                  f"(pred={train_metrics['pred']:.4f}, kl={train_metrics['kl']:.4f}) | "
-                  f"Val: {val_loss:.4f} | "
-                  f"R²: {val_r2:.4f} | "
-                  f"MAE: {val_mae:.4f}")
-            
-            # Scheduler
-            self.scheduler.step(val_loss)
-            
             # Early stopping based on R²
             if val_r2 > self.best_r2:
                 self.best_r2 = val_r2
                 no_improve = 0
                 os.makedirs('models', exist_ok=True)
                 torch.save(self.model.state_dict(), 'models/simple_vae_best.pth')
-                print(f"   ✅ New best R²: {self.best_r2:.4f}")
+                flag = " (best)"
             else:
                 no_improve += 1
-                if no_improve >= patience:
-                    print(f"\n   ⚠️ Early stopping (no improve for {patience} epochs)")
-                    break
+                flag = ""
+            
+            # Print progress (giống LSTM)
+            if epoch == 1 or epoch % 10 == 0 or flag:
+                print(f"[{epoch:03d}] train={train_metrics['loss']:.6f} "
+                      f"(pred={train_metrics['pred']:.6f}, kl={train_metrics['kl']:.4f}) | "
+                      f"val={val_loss:.6f} | R²={val_r2:.4f} | MAE={val_mae:.4f} | "
+                      f"bad={no_improve:02d}{flag}")
+            
+            # Scheduler
+            self.scheduler.step(val_loss)
+            
+            if no_improve >= patience:
+                print(f"Early stopping at epoch {epoch}")
+                break
         
-        print(f"\n{'='*70}")
-        print(f"🎉 TRAINING COMPLETE!")
-        print(f"   Best Val R²: {self.best_r2:.4f}")
-        print(f"{'='*70}")
+        self.model.load_state_dict(torch.load('models/simple_vae_best.pth', map_location=self.device))
+        print("Training finished. Best model restored.")
         
         return self.best_r2
     
     def plot_history(self, save_dir='results-vae'):
-        """Plot training history"""
+        """Plot training history (giống LSTM format)"""
         os.makedirs(save_dir, exist_ok=True)
         
-        fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+        fig = plt.figure(figsize=(12, 5))
         
         # Loss
-        axes[0, 0].plot(self.history['train_loss'], label='Train')
-        axes[0, 0].plot(self.history['val_loss'], label='Val')
-        axes[0, 0].set_xlabel('Epoch')
-        axes[0, 0].set_ylabel('Loss')
-        axes[0, 0].set_title('Training & Validation Loss')
-        axes[0, 0].legend()
-        axes[0, 0].grid(True, alpha=0.3)
+        plt.subplot(1, 2, 1)
+        plt.plot(self.history['train_loss'], label='Train', alpha=0.9)
+        plt.plot(self.history['val_loss'], label='Val', alpha=0.9)
+        plt.title('Loss (Total)')
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        plt.grid(True, alpha=0.3)
+        plt.legend()
         
-        # Loss components
-        axes[0, 1].plot(self.history['train_pred'], label='Pred Loss')
-        axes[0, 1].plot(self.history['train_kl'], label='KL Loss')
-        axes[0, 1].set_xlabel('Epoch')
-        axes[0, 1].set_ylabel('Loss')
-        axes[0, 1].set_title('Loss Components')
-        axes[0, 1].legend()
-        axes[0, 1].grid(True, alpha=0.3)
-        
-        # R²
-        axes[1, 0].plot(self.history['val_r2'], label='Val R²', color='green')
-        axes[1, 0].axhline(y=0.60, color='orange', linestyle='--', label='Target (0.60)')
-        axes[1, 0].axhline(y=0.894, color='r', linestyle='--', label='LSTM (0.894)')
-        axes[1, 0].set_xlabel('Epoch')
-        axes[1, 0].set_ylabel('R²')
-        axes[1, 0].set_title('Validation R²')
-        axes[1, 0].legend()
-        axes[1, 0].grid(True, alpha=0.3)
-        
-        # MAE
-        axes[1, 1].plot(self.history['val_mae'], color='purple')
-        axes[1, 1].set_xlabel('Epoch')
-        axes[1, 1].set_ylabel('MAE')
-        axes[1, 1].set_title('Validation MAE')
-        axes[1, 1].grid(True, alpha=0.3)
+        # Smoothed
+        plt.subplot(1, 2, 2)
+        window = max(3, min(10, len(self.history['train_loss']) // 10)) if len(self.history['train_loss']) > 10 else 3
+        plt.plot(pd.Series(self.history['train_loss']).rolling(window, min_periods=1).mean(), 
+                label=f'Train (smooth {window})', alpha=0.95)
+        plt.plot(pd.Series(self.history['val_loss']).rolling(window, min_periods=1).mean(), 
+                label=f'Val (smooth {window})', alpha=0.95)
+        plt.title('Smoothed')
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        plt.grid(True, alpha=0.3)
+        plt.legend()
         
         plt.tight_layout()
-        plt.savefig(f'{save_dir}/simple_vae_history.png', dpi=150, bbox_inches='tight')
-        print(f"\n📊 Training history saved to {save_dir}/simple_vae_history.png")
+        plt.savefig(f'{save_dir}/training_curves.png', dpi=300, bbox_inches='tight')
         plt.close()
+        print(f"\n📊 Training curves saved to {save_dir}/training_curves.png")
+    
+    def plot_results(self, y_true, y_pred, link_names=None, save_dir='results-vae'):
+        """Plot predictions (giống LSTM format)"""
+        os.makedirs(save_dir, exist_ok=True)
+        plt.style.use('default')
+        sns.set_palette("husl")
+        
+        if y_true.ndim == 2 and y_true.shape[1] > 1:
+            n = min(4, y_true.shape[1])
+            fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+            axes = axes.flatten()
+            for i in range(n):
+                ax = axes[i]
+                n_s = min(200, len(y_true))
+                ax.plot(y_true[:n_s, i], label='True', alpha=0.9, lw=1.5)
+                ax.plot(y_pred[:n_s, i], label='Pred', alpha=0.9, lw=1.5)
+                ax.set_title(link_names[i] if link_names else f'Link {i}', fontweight='bold')
+                ax.set_xlabel('Time')
+                ax.set_ylabel('Target')
+                ax.grid(True, alpha=0.3)
+                ax.legend()
+            plt.tight_layout()
+            plt.savefig(f'{save_dir}/vae_results.png', dpi=300, bbox_inches='tight')
+            plt.close()
+        print(f"📊 Results plot saved to {save_dir}/vae_results.png")
+    
+    def plot_scatter(self, y_true, y_pred, save_dir='results-vae'):
+        """Plot scatter (giống LSTM format)"""
+        os.makedirs(save_dir, exist_ok=True)
+        plt.figure(figsize=(10, 8))
+        t, p = y_true.flatten(), y_pred.flatten()
+        plt.scatter(t, p, alpha=0.4, s=3)
+        mn, mx = min(t.min(), p.min()), max(t.max(), p.max())
+        plt.plot([mn, mx], [mn, mx], 'r--', lw=2, label='Perfect')
+        plt.xlabel('True')
+        plt.ylabel('Pred')
+        plt.title('VAE Predictions vs True')
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(f'{save_dir}/vae_scatter.png', dpi=300, bbox_inches='tight')
+        plt.close()
+        print(f"📊 Scatter plot saved to {save_dir}/vae_scatter.png")
 
 
 # ============================================================================
@@ -376,12 +404,10 @@ class SimpleVAETrainer:
 def main():
     set_seed(42)
     
-    print("=" * 70)
-    print("SIMPLE VAE TRAINING")
-    print("=" * 70)
+    print("===== Simple VAE (Prediction-Only) =====")
     
-    # Load data (use LSTM data - single timestep prediction)
-    print("\n📂 Loading data...")
+    # Load data
+    print("\nLoading preprocessed data...")
     X_train = np.load('data/X_train.npy')
     y_train = np.load('data/y_train.npy')
     X_val = np.load('data/X_val.npy')
@@ -389,19 +415,24 @@ def main():
     X_test = np.load('data/X_test.npy')
     y_test = np.load('data/y_test.npy')
     
-    print(f"  X_train: {X_train.shape}")
-    print(f"  y_train: {y_train.shape}")
-    print(f"  X_val:   {X_val.shape}")
-    print(f"  y_val:   {y_val.shape}")
-    print(f"  X_test:  {X_test.shape}")
-    print(f"  y_test:  {y_test.shape}")
+    with open('data/features.json', 'r') as f:
+        feat_meta = json.load(f)
+    model_features = feat_meta.get('model_features', [])
+    target_feature = feat_meta.get('target_feature', 'utilization')
+    
+    with open('data/link_index.json', 'r') as f:
+        link_names = json.load(f)
+    
+    print("Shapes:")
+    print(f"  X_train: {X_train.shape} | y_train: {y_train.shape}")
+    print(f"  X_val  : {X_val.shape}   | y_val  : {y_val.shape}")
+    print(f"  X_test : {X_test.shape}  | y_test : {y_test.shape}")
+    print(f"  features({len(model_features)}): {model_features}")
+    print(f"  target_feature: {target_feature}")
+    print(f"  links({len(link_names)}): first 5 -> {link_names[:5]}")
     
     input_dim = X_train.shape[2]
     num_links = y_train.shape[1]
-    
-    print(f"\n📐 Model config:")
-    print(f"  Input dim: {input_dim}")
-    print(f"  Num links: {num_links}")
     
     # Create dataloaders
     train_dataset = TensorDataset(torch.FloatTensor(X_train), torch.FloatTensor(y_train))
@@ -417,39 +448,37 @@ def main():
     
     # Model
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    print(f"\n🖥️  Device: {device}")
-    
+    print(f"\nDevice: {device}")
     if device == 'cuda':
         print(f"   GPU: {torch.cuda.get_device_name(0)}")
-        print(f"   Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
     
     model = SimpleVAE(
         input_dim=input_dim,
-        latent_dim=32,       # Small latent
-        hidden_dim=128,      # Moderate hidden
+        latent_dim=96,
+        hidden_dim=256,
         num_links=num_links,
-        dropout=0.5          # High regularization
+        dropout=0.25
     )
     
     num_params = sum(p.numel() for p in model.parameters())
-    print(f"\n📊 Model parameters: {num_params:,}")
-    print(f"   Target: ~500K (Actual: {num_params/1000:.0f}K)")
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Params: total={num_params:,} | trainable={trainable_params:,}")
     
     # Train
     trainer = SimpleVAETrainer(
         model, train_loader, val_loader, device,
-        lr=1e-3,
-        weight_decay=1e-3,  # Strong regularization
-        beta=0.1            # Low KL weight
+        lr=5e-4,
+        weight_decay=2e-4,
+        beta=0.02
     )
     
-    best_r2 = trainer.train(epochs=100, patience=20)
+    best_r2 = trainer.train(epochs=200, patience=30)
     
-    # Plot
+    # Plot training curves
     trainer.plot_history()
     
     # Test evaluation
-    print("\n📊 Evaluating on test set...")
+    print("\nEvaluating on TEST ...")
     model.load_state_dict(torch.load('models/simple_vae_best.pth', weights_only=True))
     model.eval()
     
@@ -457,7 +486,7 @@ def main():
     all_targets = []
     
     with torch.no_grad():
-        for X_batch, y_batch in test_loader:
+        for X_batch, y_batch in tqdm(test_loader, desc="Predicting"):
             X_batch = X_batch.to(device)
             pred, _, _ = model(X_batch)
             all_preds.append(pred.cpu().numpy())
@@ -469,54 +498,77 @@ def main():
     # Metrics
     test_r2 = r2_score(y_true.flatten(), y_pred.flatten())
     test_mae = mean_absolute_error(y_true.flatten(), y_pred.flatten())
-    test_rmse = np.sqrt(mean_squared_error(y_true.flatten(), y_pred.flatten()))
+    test_mse = mean_squared_error(y_true.flatten(), y_pred.flatten())
+    test_rmse = np.sqrt(test_mse)
     
-    print(f"\n{'='*70}")
-    print(f"TEST SET RESULTS")
-    print(f"{'='*70}")
-    print(f"R²:   {test_r2:.4f}")
-    print(f"MAE:  {test_mae:.4f}")
-    print(f"RMSE: {test_rmse:.4f}")
-    print(f"\nComparison:")
-    print(f"  LSTM baseline: R² = 0.894")
-    print(f"  Simple VAE:    R² = {test_r2:.4f}")
-    print(f"  Gap:           {test_r2 - 0.894:.4f}")
+    # Per-link metrics
+    per_link_mse = np.mean((y_true - y_pred) ** 2, axis=0)
+    per_link_mae = np.mean(np.abs(y_true - y_pred), axis=0)
     
-    if test_r2 > 0.60:
-        print(f"\n✅ SUCCESS: R² > 0.60 target!")
-    elif test_r2 > 0.50:
-        print(f"\n⚠️ Close to target, may need tuning")
-    else:
-        print(f"\n❌ Below target")
-    print(f"{'='*70}")
+    print("\nTest (scaled): "
+          f"MSE={test_mse:.6f} | RMSE={test_rmse:.6f} | "
+          f"MAE={test_mae:.6f} | R2={test_r2:.6f}")
     
-    # Save results
+    # Plots
+    trainer.plot_results(y_true, y_pred, link_names=link_names)
+    trainer.plot_scatter(y_true, y_pred)
+    
+    # Save arrays + csv
     os.makedirs('results-vae', exist_ok=True)
+    np.save('results-vae/y_true.npy', y_true)
+    np.save('results-vae/y_pred.npy', y_pred)
+    pd.DataFrame(y_true, columns=link_names).to_csv('results-vae/y_true.csv', index=False)
+    pd.DataFrame(y_pred, columns=link_names).to_csv('results-vae/y_pred.csv', index=False)
+    
+    # Save JSON results (giống LSTM format)
     results = {
-        'architecture': 'SimpleVAE',
-        'num_params': int(num_params),
-        'best_val_r2': float(best_r2),
-        'test_r2': float(test_r2),
-        'test_mae': float(test_mae),
-        'test_rmse': float(test_rmse),
-        'config': {
-            'latent_dim': 32,
-            'hidden_dim': 128,
-            'dropout': 0.5,
-            'beta': 0.1,
-            'lr': 1e-3,
-            'weight_decay': 1e-3
+        'metrics_scaled': {
+            'mse': float(test_mse),
+            'rmse': float(test_rmse),
+            'mae': float(test_mae),
+            'r2': float(test_r2),
+            'per_link_mse': per_link_mse.tolist(),
+            'per_link_mae': per_link_mae.tolist(),
+        },
+        'metrics_real': None,
+        'model_config': {
+            'arch': 'SimpleVAE(Bi-LSTM+Attention+Predictor)',
+            'features_per_link': int(input_dim),
+            'num_links': int(num_links),
+            'hidden_dim': 256,
+            'latent_dim': 96,
+            'num_layers': 3,
+            'attn_heads': 8,
+            'dropout': 0.25,
+        },
+        'training_config': {
+            'epochs': len(trainer.history['train_loss']),
+            'batch_size': 128,
+            'lr': 5e-4,
+            'patience': 30,
+            'weight_decay': 2e-4,
+            'beta': 0.02,
+            'device': str(device),
+            'amp': device == 'cuda',
+        },
+        'data_info': {
+            'features': model_features,
+            'target_feature': target_feature,
+            'link_names': link_names,
+            'seq_len': int(X_train.shape[1]),
+            'train_samples': int(len(X_train)),
+            'val_samples': int(len(X_val)),
+            'test_samples': int(len(X_test)),
         }
     }
     
-    with open('results-vae/simple_vae_results.json', 'w') as f:
+    with open('results-vae/vae_results.json', 'w') as f:
         json.dump(results, f, indent=2)
     
-    # Save predictions
-    np.save('results-vae/simple_vae_y_pred.npy', y_pred)
-    np.save('results-vae/simple_vae_y_true.npy', y_true)
-    
-    print(f"\n💾 Results saved to results-vae/simple_vae_results.json")
+    print("\nSaved:")
+    print("  models/simple_vae_best.pth")
+    print("  results-vae/vae_results.json, y_true|y_pred.(npy|csv)")
+    print("  results-vae/training_curves.png, vae_results.png, vae_scatter.png")
 
 
 if __name__ == '__main__':
