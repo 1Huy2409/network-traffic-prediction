@@ -26,17 +26,12 @@ wheels/
 .installed.cfg
 *.egg
 
-# Models (trained models - don't commit)
-models/*.h5
-models/*.pkl
-models/*.pt
-models/*.pth
+# # Models (trained models - don't commit)
+# models/*.h5
+# models/*.pkl
+# models/*.pt
+# models/*.pth
 
-# Results (generated files - don't commit)
-results/*.npy
-results/*.csv
-
-results-vae/*.npy
 
 # IDE
 .vscode/
@@ -59,9 +54,15 @@ logs/
 # Jupyter Notebook
 .ipynb_checkpoints
 
-# PyTorch checkpoints
+# PyTorch checkpoints (exclude all except in models/ and results/)
 *.pth
 *.pt
+!models/*.pth
+!models/*.pt
+!results/**/*.pth
+!results/**/*.pt
+!results-vae/**/*.pth
+!results-vae/**/*.pt
 
 # TensorBoard
 runs/
@@ -70,7 +71,8 @@ logs/
 # Keep dataset files in data/ folder
 !data/*.csv
 
+# Exclude data npy files but keep results
 /data/*.npy
+!results/**/*.npy
+!results-vae/**/*.npy
 
-# Ignore large numpy arrays
-*.npy
