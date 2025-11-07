@@ -21,8 +21,12 @@ Date: 2025-11-06
 import sys
 import io
 if sys.platform == 'win32':
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+    try:
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+    except (AttributeError, ValueError):
+        # stdout/stderr already configured or buffer closed (e.g., in bash)
+        pass
 
 import torch
 import numpy as np
@@ -422,7 +426,7 @@ def main():
     """Main function"""
     parser = argparse.ArgumentParser(description='Demo prediction from simulator traffic')
     parser.add_argument('--simulator-csv', 
-                       default='../SAGSINs-Simulator/docker/data/traffic_data.csv',
+                       default='../SAGSINs-System/docker/data/traffic_data.csv',
                        help='Path to simulator traffic_data.csv')
     parser.add_argument('--vae-model', 
                        default='models/simple_vae_best.pth',

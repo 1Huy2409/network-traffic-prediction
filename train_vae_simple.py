@@ -14,8 +14,12 @@ Target: R² > 0.60 (realistic for VAE)
 import sys
 import io
 if sys.platform == 'win32':
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+    try:
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+    except (AttributeError, ValueError):
+        # stdout/stderr already configured or buffer closed (e.g., in bash)
+        pass
 
 import torch
 import torch.nn as nn
