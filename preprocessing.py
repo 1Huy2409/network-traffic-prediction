@@ -273,9 +273,15 @@ class DataPreprocessor:
             scaler = MinMaxScaler()
             train_block = scaled[feat].iloc[:train_end_idx]
             scaler.fit(train_block.values)
-            scaled[feat] = scaler.transform(scaled[feat].values)
+            
+            # Transform and CLIP to [0, 1] to prevent negative values
+            # (test data may have values outside train range)
+            scaled_values = scaler.transform(scaled[feat].values)
+            scaled_values = np.clip(scaled_values, 0, 1)
+            scaled[feat] = scaled_values
+            
             scalers[feat] = scaler
-        print('Scaled wide')
+        print('✅ Scaled and clipped to [0, 1]')
         return scaled, scalers
 
     def create_lstm_sequences_from_wide(self, wide: pd.DataFrame, seq_len: int = None, horizon: int = 1):

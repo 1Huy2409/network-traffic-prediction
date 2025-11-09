@@ -33,13 +33,28 @@ import numpy as np
 import pandas as pd
 import json
 import pickle
+import joblib
 import argparse
 from pathlib import Path
 from datetime import datetime
+import random
+
+# Set seed for reproducibility
+REPRODUCIBILITY_SEED = 42
+random.seed(REPRODUCIBILITY_SEED)
+np.random.seed(REPRODUCIBILITY_SEED)
+torch.manual_seed(REPRODUCIBILITY_SEED)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(REPRODUCIBILITY_SEED)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 # Import models
 from train_vae_simple import SimpleVAE
 from train_lstm import LSTMModel
+
+# Import temporal aggregator
+from temporal_aggregator import TemporalAggregator
 
 
 class SimulatorPredictor:
@@ -53,7 +68,8 @@ class SimulatorPredictor:
                  scalers_path='models/wide_scalers.pkl',
                  features_json='data/features.json',
                  link_index_json='data/link_index.json',
-                 test_data_path='data/X_test.npy'):
+                 test_data_path='data/X_test.npy',
+                 deterministic_vae=True):
         """
         Initialize predictor
         
@@ -64,9 +80,19 @@ class SimulatorPredictor:
             features_json: Path to features config
             link_index_json: Path to link index
             test_data_path: Path to test set (for history)
+            deterministic_vae: If True, use mean (μ) for stable VAE inference
+                              If False, use sampling (z) for stochastic inference
         """
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         print(f"🔧 Device: {self.device}")
+        
+        # VAE inference mode
+        self.deterministic_vae = deterministic_vae
+        vae_mode = "deterministic (μ)" if deterministic_vae else "stochastic (z~N(μ,σ))"
+        print(f"🎲 VAE mode: {vae_mode}")
+        
+        # Initialize temporal aggregator
+        self.aggregator = TemporalAggregator(window_size=30)
         
         self.vae_model_path = vae_model_path
         self.lstm_model_path = lstm_model_path
@@ -92,7 +118,7 @@ class SimulatorPredictor:
         self.wide_scalers = None
         if Path(scalers_path).exists():
             with open(scalers_path, 'rb') as f:
-                self.wide_scalers = pickle.load(f)
+                self.wide_scalers = joblib.load(f)
             print(f"✅ Loaded scalers from {scalers_path}")
         else:
             print(f"⚠️  Scalers not found at {scalers_path}")
@@ -148,17 +174,18 @@ class SimulatorPredictor:
         self.X_test = np.load(test_data_path)
         print(f"✅ Loaded test data: {self.X_test.shape}")
     
-    def load_simulator_csv(self, csv_path, use_latest=True):
+    def load_simulator_csv(self, csv_path, use_latest=True, use_aggregation=True):
         """
         Load traffic từ simulator CSV và extract features cho 1 link
         
         Args:
             csv_path: Path to simulator traffic_data.csv
             use_latest: Lấy record mới nhất (default: True)
+            use_aggregation: Apply 30s temporal aggregation (default: True)
         
         Returns:
             tuple: (features_base, link_id)
-            - features_base: numpy array shape (11,) - base features cho 1 link
+            - features_base: numpy array shape (11,) - base features cho 1 link (RAW, chưa scale)
             - link_id: str - link ID từ simulator
         """
         csv_path = Path(csv_path)
@@ -180,18 +207,90 @@ class SimulatorPredictor:
         if simulator_link_id:
             print(f"   🔗 Link: {simulator_link_id}")
         
-        # Extract 11 base features
+        # ============================================
+        # NEW: Apply temporal aggregation (1s → 30s)
+        # ============================================
+        if use_aggregation:
+            print(f"   🔄 Applying 30s temporal aggregation...")
+            
+            # Convert to dict for aggregator
+            record_dict = df_latest.iloc[0].to_dict()
+            
+            # Upsample 1s → 30s window and aggregate
+            aggregated = self.aggregator.process_simulator_record(record_dict)
+            
+            # Convert back to DataFrame
+            df_latest = pd.DataFrame([aggregated])
+            
+            print(f"   ✅ Aggregated: util={aggregated['utilization']:.4f}, "
+                  f"bitrate={aggregated['bitrate_bps']/1e6:.2f} Mbps")
+        # ============================================
+        
+        # Extract 11 base features (RAW values, chưa scale)
         missing = [f for f in self.model_features if f not in df_latest.columns]
         if missing:
             raise ValueError(f"Missing features in simulator CSV: {missing}")
         
-        # Get feature values (11 features)
+        # Get feature values (11 features) - RAW values
         features_df = df_latest[self.model_features]
-        features_base = features_df.values[0]  # shape: (11,)
+        features_base = features_df.values[0]  # shape: (11,) - RAW values
         
-        print(f"   ✅ Extracted {self.num_features} base features")
+        print(f"   ✅ Extracted {self.num_features} base features (RAW)")
         
         return features_base, simulator_link_id  # shape: (11,), link_id
+    
+    def scale_simulator_features(self, sim_features_raw, link_idx, history_baseline=None):
+        """
+        Scale simulator features đúng format wide (features × links)
+        
+        Args:
+            sim_features_raw: numpy array shape (11,) - RAW features từ simulator
+            link_idx: int - link index trong model
+            history_baseline: numpy array shape (132,) - baseline từ history (đã scaled)
+        
+        Returns:
+            numpy array shape (11,) - SCALED features ready for history update
+        """
+        if self.wide_scalers is None:
+            # No scaler - assume data already scaled (shouldn't happen)
+            print("   ⚠️  No scaler available - using raw features (may cause errors)")
+            return sim_features_raw
+        
+        # Scale từng feature theo wide format
+        # wide_scalers[feature] được fit trên (T, num_links) → transform cần (1, num_links)
+        scaled_features = np.zeros_like(sim_features_raw)
+        
+        # Lấy baseline từ history nếu có (đã scaled)
+        if history_baseline is not None:
+            baseline_reshaped = history_baseline.reshape(self.num_features, self.num_links)  # (11, 12)
+        else:
+            # Fallback: dùng mean từ test set
+            baseline_reshaped = self.X_test[-1, -1, :].reshape(self.num_features, self.num_links)
+        
+        for i, feature_name in enumerate(self.model_features):
+            if feature_name in self.wide_scalers:
+                scaler = self.wide_scalers[feature_name]
+                
+                # Lấy baseline cho feature này (đã scaled): (1, 12)
+                baseline_feature = baseline_reshaped[i:i+1, :].copy()  # (1, 12) - đã scaled
+                
+                # Inverse scale để có raw values
+                baseline_feature_raw = scaler.inverse_transform(baseline_feature)  # (1, 12) - raw
+                
+                # Update value cho link_idx
+                baseline_feature_raw[0, link_idx] = sim_features_raw[i]
+                
+                # Scale lại
+                scaled_wide = scaler.transform(baseline_feature_raw)  # (1, 12) - scaled
+                scaled_wide = np.clip(scaled_wide, 0, 1)
+                
+                # Lấy value cho link_idx
+                scaled_features[i] = scaled_wide[0, link_idx]
+            else:
+                # No scaler - use raw
+                scaled_features[i] = sim_features_raw[i]
+        
+        return scaled_features
     
     def get_history_from_test(self, n_sequences=95):
         """
@@ -215,29 +314,39 @@ class SimulatorPredictor:
         Scale dữ liệu sử dụng wide_scalers (nếu có)
         
         Args:
-            X_raw: numpy array shape (seq_len, num_features)
+            X_raw: numpy array shape (seq_len, input_dim) = (96, 132)
+                   Format: wide format (features × links)
         
         Returns:
-            numpy array shape (seq_len, num_features) - scaled
+            numpy array shape (seq_len, input_dim) - scaled
         """
         if self.wide_scalers is None:
-            # No scaler available, assume data already scaled
-            print("   ℹ️  No scaler - using raw data (assumed pre-scaled)")
+            # No scaler available, assume data already scaled (X_test is pre-scaled)
             return X_raw
         
-        # X_raw shape: (96, 11)
+        # X_raw shape: (96, 132) = (96, 11 features × 12 links)
+        # wide_scalers scale theo format: mỗi feature có 1 scaler cho (T, num_links)
         seq_len = X_raw.shape[0]
+        X_scaled = X_raw.copy()
         
-        # Scale từng feature
-        X_scaled = np.zeros_like(X_raw)
+        # Reshape để scale theo từng feature
+        # X_raw: (96, 132) → reshape to (96, 11, 12) → scale từng feature
+        X_reshaped = X_raw.reshape(seq_len, self.num_features, self.num_links)  # (96, 11, 12)
+        
         for i, feature_name in enumerate(self.model_features):
             if feature_name in self.wide_scalers:
                 scaler = self.wide_scalers[feature_name]
-                # Reshape to (seq_len, 1) for scaler
-                X_scaled[:, i] = scaler.transform(X_raw[:, i].reshape(-1, 1)).flatten()
-            else:
-                # No scaler, use raw
-                X_scaled[:, i] = X_raw[:, i]
+                # Extract feature block: (96, 12) - all links for this feature
+                feature_block = X_reshaped[:, i, :]  # (96, 12)
+                # Scale
+                scaled_block = scaler.transform(feature_block)  # (96, 12)
+                # Clip to [0, 1]
+                scaled_block = np.clip(scaled_block, 0, 1)
+                # Put back
+                X_reshaped[:, i, :] = scaled_block
+        
+        # Reshape back to (96, 132)
+        X_scaled = X_reshaped.reshape(seq_len, self.input_dim)
         
         return X_scaled
     
@@ -263,8 +372,19 @@ class SimulatorPredictor:
         # VAE prediction
         if model_type in ['vae', 'both'] and self.vae_model is not None:
             with torch.no_grad():
+                # Get encoder outputs
                 pred_vae, mu, logvar = self.vae_model(X_tensor)
-                pred_vae_np = pred_vae.cpu().numpy()[0]  # (12,)
+                
+                # Choose inference mode
+                if self.deterministic_vae:
+                    # DETERMINISTIC: Use predictor(mu) for stable predictions
+                    # Note: In SimpleVAE, 'predictor' is the decoder that maps latent → output
+                    pred_final = self.vae_model.predictor(mu)
+                else:
+                    # STOCHASTIC: Use predictor(z) with random sampling
+                    pred_final = pred_vae
+                
+                pred_vae_np = pred_final.cpu().numpy()[0]  # (12,)
                 
                 # Clip to [0, 1]
                 pred_vae_np = np.clip(pred_vae_np, 0, 1)
@@ -318,15 +438,33 @@ class SimulatorPredictor:
         # Get link index
         link_idx = self.link_index.index(simulator_link_id)
         
-        # Step 3: Update ONLY simulator link in last timestep
-        print(f"\n📌 Step 3: Update link {simulator_link_id} (index {link_idx}) in last timestep")
+        # Step 3: Scale simulator features và update vào history
+        print(f"\n📌 Step 3: Scale and update link {simulator_link_id} (index {link_idx})")
+        
+        # ✅ CRITICAL: Scale simulator features đúng format wide
+        # Dùng baseline từ history để scale đúng
+        sim_features_scaled = self.scale_simulator_features(
+            sim_features, link_idx, history_baseline=history_full[-1, :]
+        )
+        
         # Calculate feature range for this link in wide format
         link_start = link_idx * self.num_features  # e.g., link 7: 7*11 = 77
         link_end = (link_idx + 1) * self.num_features  # e.g., link 7: 8*11 = 88
         
-        # Replace ONLY simulator link features in last timestep
-        history_full[-1, link_start:link_end] = sim_features
-        print(f"   ✅ Updated features [{link_start}:{link_end}] with simulator data")
+        # Get old features (đã scaled từ test set)
+        old_features = history_full[-1, link_start:link_end].copy()
+        
+        # SMOOTH BLENDING: 80% new, 20% old (avoid "shock" to model)
+        blend_weight = 0.8  # 80% new, 20% old
+        blended_features = blend_weight * sim_features_scaled + (1 - blend_weight) * old_features
+        
+        # Update history
+        history_full[-1, link_start:link_end] = blended_features
+        
+        print(f"   ✅ Scaled and blended features [{link_start}:{link_end}] (80% new, 20% old)")
+        print(f"   📊 Old util (scaled):     {old_features[0]:.4f}")
+        print(f"   📊 New util (scaled):     {sim_features_scaled[0]:.4f}")
+        print(f"   📊 Blended util (scaled): {blended_features[0]:.4f}")
         print(f"   ℹ️  Other 11 links keep test set values (realistic network state)")
         
         # Step 4: Predict với cả 2 models
@@ -426,7 +564,7 @@ def main():
     """Main function"""
     parser = argparse.ArgumentParser(description='Demo prediction from simulator traffic')
     parser.add_argument('--simulator-csv', 
-                       default='../SAGSINs-System/docker/data/traffic_data.csv',
+                       default='../SAGSINs-Simulator/docker/data/traffic_data.csv',
                        help='Path to simulator traffic_data.csv')
     parser.add_argument('--vae-model', 
                        default='models/simple_vae_best.pth',

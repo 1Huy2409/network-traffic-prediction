@@ -179,6 +179,18 @@ def predict(request: PredictRequest):
             use_latest=request.use_latest
         )
         
+        # =============================================
+        # NO SCALING NEEDED FOR BITRATE
+        # =============================================
+        # Simulator: 1-second bitrate (~7.5 Mbps instantaneous)
+        # Training:  30-second MEAN bitrate (preprocessing.py uses .mean())
+        # → Bitrate is already a rate (bps), no time window conversion needed!
+        # → Just use simulator bitrate as-is
+        # =============================================
+        
+        logger.info(f"[DATA] Using simulator features as-is (no time scaling for rate-based metrics)")
+        logger.info(f"   bitrate_bps: {sim_features[1]:,.0f}")
+        
         # Check if link exists
         if not simulator_link_id or simulator_link_id not in pred.link_index:
             raise HTTPException(
