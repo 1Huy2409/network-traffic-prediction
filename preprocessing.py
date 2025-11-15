@@ -19,25 +19,20 @@ warnings.filterwarnings('ignore')
 
 class DataPreprocessor:
     def __init__(self, resample_interval: str = '30S', sequence_length: int = 96):
-        # ✅ Thay đổi từ '10S' → '30S' để khớp với gendata
         self.resample_interval = resample_interval
-        self.sequence_length = sequence_length  # 96 × 30s = 48 phút lookback
+        self.sequence_length = sequence_length
 
         # scalers
         self.scalers = None
 
         # feature lists
-        self.model_features = []     # ✅ bộ feature chung cho cả VAE & LSTM
+        self.model_features = []   
         self.target_feature = 'utilization'
 
         # DataFrames
         self.nodes_df = None
         self.topology_df = None
         self.traffic_df = None
-
-    # --------------------
-    # I/O
-    # --------------------
     def load_data(self):
         print('Loading raw data...')
 
@@ -68,7 +63,7 @@ class DataPreprocessor:
     # Clean + Resample
     # --------------------
     def clean_and_resample(self):
-        print('Cleaning + Resampling to 30s...')  # ✅ Update message
+        print('Cleaning + Resampling to 30s...')
         df = self.traffic_df.copy()
 
         # Ensure timestamp dtype

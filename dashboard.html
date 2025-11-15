@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Traffic Prediction Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            background: #1e293b;
+            border-radius: 8px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+            border: 1px solid #334155;
+        }
+
+        h1 {
+            color: #e2e8f0;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+
+        .subtitle {
+            color: #94a3b8;
+            font-size: 1.1em;
+            font-weight: 400;
+        }
+
+        .status-bar {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .status-card {
+            background: #1e293b;
+            border-radius: 8px;
+            padding: 20px;
+            flex: 1;
+            min-width: 200px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+            transition: transform 0.2s, border-color 0.2s;
+            border: 1px solid #334155;
+        }
+
+        .status-card:hover {
+            transform: translateY(-2px);
+            border-color: #475569;
+        }
+
+        .status-label {
+            font-size: 0.9em;
+            color: #94a3b8;
+            margin-bottom: 8px;
+        }
+
+        .status-value {
+            font-size: 1.2em;
+            font-weight: 600;
+            color: #3b82f6;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .status-indicator.healthy { background: #10b981; }
+        .status-indicator.medium { background: #f59e0b; }
+        .status-indicator.high { background: #ef4444; }
+        .status-indicator.offline { background: #64748b; }
+
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .chart-container {
+            background: #1e293b;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+            border: 1px solid #334155;
+        }
+
+        .chart-title {
+            font-size: 1.3em;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #e2e8f0;
+        }
+
+        .predictions-table {
+            background: #1e293b;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+            overflow-x: auto;
+            border: 1px solid #334155;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #334155;
+        }
+
+        th {
+            background: #0f172a;
+            color: #3b82f6;
+            font-weight: 600;
+        }
+
+        td {
+            color: #cbd5e1;
+        }
+
+        tr:hover {
+            background: #0f172a;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+
+        .badge.low { background: rgba(16, 185, 129, 0.15); color: #10b981; }
+        .badge.medium { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
+        .badge.high { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+
+        .no-data {
+            text-align: center;
+            padding: 40px;
+            color: #64748b;
+            font-size: 1.2em;
+        }
+
+        .refresh-btn {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: background 0.3s, transform 0.2s;
+            font-weight: 500;
+        }
+
+        .refresh-btn:hover {
+            background: #2563eb;
+            transform: scale(1.02);
+        }
+
+        .refresh-btn:active {
+            transform: scale(0.98);
+        }
+
+        footer {
+            text-align: center;
+            color: #64748b;
+            margin-top: 30px;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Network Traffic Prediction Dashboard</h1>
+            <p class="subtitle">Real-time AI-powered network utilization forecasting</p>
+        </header>
+
+        <!-- Status Cards -->
+        <div class="status-bar">
+            <div class="status-card">
+                <div class="status-label">
+                    <span class="status-indicator" id="service-indicator"></span>
+                    Service Status
+                </div>
+                <div class="status-value" id="service-status">Connecting...</div>
+            </div>
+            <div class="status-card">
+                <div class="status-label">Latest Prediction</div>
+                <div class="status-value" id="latest-prediction">--</div>
+            </div>
+            <div class="status-card">
+                <div class="status-label">Active Link</div>
+                <div class="status-value" id="active-link">--</div>
+            </div>
+            <div class="status-card">
+                <div class="status-label">Total Predictions</div>
+                <div class="status-value" id="total-predictions">0</div>
+            </div>
+        </div>
+
+        <!-- Charts -->
+        <div class="charts-grid">
+            <div class="chart-container">
+                <h3 class="chart-title">Utilization Trend</h3>
+                <canvas id="trendChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <h3 class="chart-title">Model Comparison</h3>
+                <canvas id="modelChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Predictions Table -->
+        <div class="predictions-table">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h3 class="chart-title" style="margin: 0;">Recent Predictions</h3>
+                <button class="refresh-btn" onclick="fetchLatestPredictions()">🔄 Refresh</button>
+            </div>
+            <table id="predictions-table">
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Link ID</th>
+                        <th>VAE</th>
+                        <th>LSTM</th>
+                        <th>Average</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="predictions-body">
+                    <tr>
+                        <td colspan="6" class="no-data">No predictions yet. Send a packet to generate prediction.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <footer>
+            <p>PBL4 - SAGSINs System © 2025 | Powered by VAE + LSTM Models</p>
+        </footer>
+    </div>
+
+    <script>
+        // Configuration
+        const PREDICTION_SERVICE_URL = 'http://localhost:5000';
+        const SOCKET_SERVER_URL = 'http://localhost:3001'; // Node.js backend
+        
+        // State
+        let predictions = [];
+        let trendChart = null;
+        let modelChart = null;
+
+        // Initialize Charts
+        function initCharts() {
+            // Trend Chart
+            const trendCtx = document.getElementById('trendChart').getContext('2d');
+            trendChart = new Chart(trendCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'VAE',
+                            data: [],
+                            borderColor: '#3b82f6',
+                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                            tension: 0.4
+                        },
+                        {
+                            label: 'LSTM',
+                            data: [],
+                            borderColor: '#8b5cf6',
+                            backgroundColor: 'rgba(139, 92, 246, 0.1)',
+                            tension: 0.4
+                        },
+                        {
+                            label: 'Average',
+                            data: [],
+                            borderColor: '#06b6d4',
+                            backgroundColor: 'rgba(6, 182, 212, 0.1)',
+                            tension: 0.4,
+                            borderWidth: 3
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: {
+                                color: '#cbd5e1',
+                                font: { size: 12 },
+                                padding: 15
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            ticks: {
+                                color: '#94a3b8',
+                                callback: function(value) {
+                                    return value + '%';
+                                }
+                            },
+                            grid: {
+                                color: 'rgba(148, 163, 184, 0.1)'
+                            }
+                        },
+                        x: {
+                            ticks: {
+                                color: '#94a3b8'
+                            },
+                            grid: {
+                                color: 'rgba(148, 163, 184, 0.1)'
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Model Comparison Chart
+            const modelCtx = document.getElementById('modelChart').getContext('2d');
+            modelChart = new Chart(modelCtx, {
+                type: 'bar',
+                data: {
+                    labels: ['VAE', 'LSTM', 'Average'],
+                    datasets: [{
+                        label: 'Utilization (%)',
+                        data: [0, 0, 0],
+                        backgroundColor: [
+                            'rgba(59, 130, 246, 0.8)',
+                            'rgba(139, 92, 246, 0.8)',
+                            'rgba(6, 182, 212, 0.8)'
+                        ],
+                        borderColor: [
+                            '#3b82f6',
+                            '#8b5cf6',
+                            '#06b6d4'
+                        ],
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            ticks: {
+                                color: '#94a3b8',
+                                callback: function(value) {
+                                    return value + '%';
+                                }
+                            },
+                            grid: {
+                                color: 'rgba(148, 163, 184, 0.1)'
+                            }
+                        },
+                        x: {
+                            ticks: {
+                                color: '#94a3b8'
+                            },
+                            grid: {
+                                color: 'rgba(148, 163, 184, 0.1)'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Update Charts
+        function updateCharts(prediction) {
+            if (!prediction) return;
+
+            // Update trend chart (keep last 20)
+            const time = new Date(prediction.timestamp).toLocaleTimeString();
+            
+            trendChart.data.labels.push(time);
+            trendChart.data.datasets[0].data.push(prediction.vae?.utilization_percent || 0);
+            trendChart.data.datasets[1].data.push(prediction.lstm?.utilization_percent || 0);
+            trendChart.data.datasets[2].data.push(prediction.average?.utilization_percent || 0);
+
+            // Keep only last 20 points
+            if (trendChart.data.labels.length > 20) {
+                trendChart.data.labels.shift();
+                trendChart.data.datasets.forEach(ds => ds.data.shift());
+            }
+            
+            trendChart.update();
+
+            // Update model comparison chart
+            modelChart.data.datasets[0].data = [
+                prediction.vae?.utilization_percent || 0,
+                prediction.lstm?.utilization_percent || 0,
+                prediction.average?.utilization_percent || 0
+            ];
+            modelChart.update();
+        }
+
+        // Update Status Cards
+        function updateStatusCards(prediction) {
+            if (!prediction) return;
+
+            const avgUtil = prediction.average?.utilization_percent || 0;
+            const status = prediction.average?.status || 'UNKNOWN';
+
+            document.getElementById('latest-prediction').textContent = avgUtil.toFixed(1) + '%';
+            document.getElementById('active-link').textContent = prediction.link_id;
+            document.getElementById('total-predictions').textContent = predictions.length;
+
+            // Update indicator
+            const indicator = document.getElementById('service-indicator');
+            indicator.className = 'status-indicator';
+            if (status === 'LOW') indicator.classList.add('healthy');
+            else if (status === 'MEDIUM') indicator.classList.add('medium');
+            else if (status === 'HIGH') indicator.classList.add('high');
+        }
+
+        // Update Table
+        function updateTable() {
+            const tbody = document.getElementById('predictions-body');
+            
+            if (predictions.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="no-data">No predictions yet. Send a packet to generate prediction.</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = predictions.slice(-10).reverse().map(p => {
+                const time = new Date(p.timestamp).toLocaleString();
+                const vaeUtil = p.vae?.utilization_percent?.toFixed(1) || '--';
+                const lstmUtil = p.lstm?.utilization_percent?.toFixed(1) || '--';
+                const avgUtil = p.average?.utilization_percent?.toFixed(1) || '--';
+                const status = p.average?.status || 'UNKNOWN';
+                const badgeClass = status.toLowerCase();
+
+                return `
+                    <tr>
+                        <td>${time}</td>
+                        <td><strong>${p.link_id}</strong></td>
+                        <td>${vaeUtil}%</td>
+                        <td>${lstmUtil}%</td>
+                        <td><strong>${avgUtil}%</strong></td>
+                        <td><span class="badge ${badgeClass}">${status}</span></td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // Add Prediction
+        function addPrediction(prediction) {
+            predictions.push(prediction);
+            updateStatusCards(prediction);
+            updateCharts(prediction);
+            updateTable();
+        }
+
+        // Check Service Health
+        async function checkHealth() {
+            try {
+                const response = await fetch(`${PREDICTION_SERVICE_URL}/health`);
+                const data = await response.json();
+                
+                const statusEl = document.getElementById('service-status');
+                const indicator = document.getElementById('service-indicator');
+                
+                if (data.status === 'healthy') {
+                    statusEl.textContent = 'Online';
+                    indicator.className = 'status-indicator healthy';
+                } else {
+                    statusEl.textContent = 'Unhealthy';
+                    indicator.className = 'status-indicator high';
+                }
+            } catch (error) {
+                document.getElementById('service-status').textContent = 'Offline';
+                document.getElementById('service-indicator').className = 'status-indicator offline';
+            }
+        }
+
+        // Fetch Latest Predictions (from memory or API if available)
+        async function fetchLatestPredictions() {
+            try {
+                const response = await fetch(`${PREDICTION_SERVICE_URL}/predictions?limit=50`);
+                const data = await response.json();
+                
+                if (data.status === 'success' && data.predictions) {
+                    // Clear existing predictions
+                    predictions = [];
+                    
+                    // Add all historical predictions
+                    data.predictions.forEach(p => {
+                        predictions.push(p);
+                        updateCharts(p);
+                    });
+                    
+                    // Update table and status
+                    if (predictions.length > 0) {
+                        updateStatusCards(predictions[predictions.length - 1]);
+                    }
+                    updateTable();
+                    
+                    console.log(`📊 Loaded ${data.predictions.length} historical predictions`);
+                }
+            } catch (error) {
+                console.error('Error fetching predictions:', error);
+            }
+        }
+
+        // WebSocket Connection to Node.js Backend
+        function connectWebSocket() {
+            const socket = io(SOCKET_SERVER_URL);
+
+            socket.on('connect', () => {
+                console.log('✅ Connected to backend via WebSocket');
+            });
+
+            socket.on('prediction', (data) => {
+                console.log('🔮 Received prediction:', data);
+                addPrediction(data.prediction);
+            });
+
+            socket.on('disconnect', () => {
+                console.log('❌ Disconnected from backend');
+            });
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            initCharts();
+            checkHealth();
+            fetchLatestPredictions(); // Load historical data on startup
+            setInterval(checkHealth, 5000); // Check every 5 seconds
+            
+            // Try to connect to WebSocket for real-time updates
+            try {
+                connectWebSocket();
+            } catch (error) {
+                console.log('WebSocket not available, using polling mode');
+                // Fallback: Poll for new predictions every 3 seconds
+                setInterval(fetchLatestPredictions, 3000);
+            }
+        });
+    </script>
+</body>
+</html>

@@ -5,7 +5,7 @@ echo ======================================
 echo Starting Prediction Service
 echo ======================================
 
-cd  E:\adocument\PBL4\Code\PBL4-Network-Traffic-Prediction
+cd  D:\HuyCoding\PBL4\PBL4-Network-Traffic-Prediction
 
 echo.
 echo Checking dependencies...

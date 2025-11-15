@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """
 Prediction Service - FastAPI Server
-====================================
-Chạy prediction service riêng trên local machine (không trong Docker)
 
 Usage:
     python prediction_service.py
@@ -54,8 +52,12 @@ def safe_print(*args, **kwargs):
 
 import argparse
 from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import uvicorn
+from typing import List
+from collections import deque
 
 # Import predictor
 from demo_predict_from_simulator import SimulatorPredictor
@@ -71,6 +73,9 @@ app = FastAPI(
 
 # Global predictor instance (lazy load)
 predictor = None
+
+# Store recent predictions (in-memory, max 100)
+recent_predictions = deque(maxlen=100)
 
 # =============================================
 # Request/Response Models
@@ -117,13 +122,21 @@ def get_predictor():
 # =============================================
 @app.get("/")
 def root():
-    """Root endpoint"""
+    """Root endpoint - Redirect to dashboard"""
+    return FileResponse("dashboard.html")
+
+@app.get("/api")
+def api_info():
+    """API information"""
     return {
         "service": "PBL4 Prediction Service",
         "version": "1.0.0",
         "status": "running",
         "endpoints": {
+            "GET /": "Dashboard UI",
+            "GET /api": "API information",
             "POST /predict": "Run prediction on traffic data",
+            "GET /predictions": "Get recent predictions",
             "GET /health": "Health check"
         }
     }
@@ -139,12 +152,32 @@ def health_check():
             "models": {
                 "vae": pred.vae_model is not None if pred else False,
                 "lstm": pred.lstm_model is not None if pred else False
-            }
+            },
+            "total_predictions": len(recent_predictions)
         }
     except Exception as e:
         logger.error(f"Health check failed: {e}", exc_info=True)
         return {
             "status": "unhealthy",
+            "error": str(e)
+        }
+
+@app.get("/predictions")
+def get_predictions(limit: int = 50):
+    """Get recent predictions"""
+    try:
+        # Return most recent predictions (up to limit)
+        predictions_list = list(recent_predictions)[-limit:]
+        return {
+            "status": "success",
+            "total": len(recent_predictions),
+            "returned": len(predictions_list),
+            "predictions": predictions_list
+        }
+    except Exception as e:
+        logger.error(f"Error fetching predictions: {e}", exc_info=True)
+        return {
+            "status": "error",
             "error": str(e)
         }
 
@@ -252,6 +285,9 @@ def predict(request: PredictRequest):
             logger.info(f"   [AVG]  {avg_util*100:.2f}% ({result['average']['status']})")
         
         logger.info(f"[SUCCESS] Prediction complete")
+        
+        # Store prediction in memory
+        recent_predictions.append(result)
         
         return PredictResponse(
             status="success",

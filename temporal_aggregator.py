@@ -87,7 +87,7 @@ class TemporalAggregator:
             # Add realistic noise with temporal correlation
             # Use sine wave for smooth variation
             phase = 2 * np.pi * i / self.window_size
-            trend_factor = 1.0 + 0.05 * np.sin(phase)  # ✅ ±5% trend (was 2%)
+            trend_factor = 1.0 + 0.05 * np.sin(phase)
             
             # Generate noisy values
             util_noisy = base_util * trend_factor + np.random.normal(0, util_noise_std)
@@ -130,15 +130,13 @@ class TemporalAggregator:
         Returns:
             dict with aggregated values (same format as training)
         """
-        df = pd.DataFrame(records)
+        df = pd.DataFrame(records) # create a dataframe for easy aggregation
         
         # Bytes: SUM (total bytes in 30s) - MUST calculate first
         bytes_sent_sum = df['bytes_sent'].sum() if 'bytes_sent' in df.columns else 0
         
         # Capacity from last record
         capacity_bps = records[-1].get('capacity_bps', 0)
-        
-        # ✅ FIX: Calculate utilization from bytes_sent (SUM) / window_seconds / capacity
         # This matches preprocessing.py line 172:
         # utilization = ((8.0 * bytes_sent / window_seconds) / capacity_bps)
         window_seconds = self.window_size  # 30 seconds
@@ -153,7 +151,6 @@ class TemporalAggregator:
             # Use LAST timestamp as representative
             'timestamp': records[-1]['timestamp'],
             
-            # ✅ Utilization: Calculate from bytes_sent (SUM) to match training
             'utilization': utilization_calculated,
             
             # Bitrate: MEAN (it's a rate!)

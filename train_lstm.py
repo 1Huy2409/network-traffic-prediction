@@ -53,7 +53,7 @@ class LSTMModel(nn.Module):
       - Head per-link -> [B, L]
     """
     def __init__(self,
-                 input_size,              # D = F*L (giữ tham số cũ để tương thích)
+                 input_size,              # D = F*L (giữ tham số cũ để tương thích): số chiều của 1 timestamp (số feature * số link)
                  hidden_size=256,
                  num_layers=2,
                  dropout=0.2,
