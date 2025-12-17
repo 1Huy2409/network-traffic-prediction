@@ -5,8 +5,6 @@ echo ======================================
 echo Starting Prediction Service
 echo ======================================
 
-cd  D:\HuyCoding\PBL4\PBL4-Network-Traffic-Prediction
-
 echo.
 echo Checking dependencies...
 pip show fastapi >nul 2>&1
